@@ -3,6 +3,7 @@ This is a cleaned up and documented version of the cgb-acid-hell test created by
 is programmed in a very unorthodox way that abuses edge cases/quirks in the hardware (for example with
 the halt instruction and interrupts), and relies on constant manipulation of the scroll and LCDC registers
 every scanline to control what graphics from the tilemap are drawn to the screen.
+There's also several additional red herrings meant to mislead someone trying to understand the test, making it all the more confusing.
 
 Look at the code if you dare 😈
 

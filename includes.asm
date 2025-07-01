@@ -1,6 +1,9 @@
 INCLUDE "constants/hardware.inc"
+INCLUDE "constants/graphics_values.asm"
 INCLUDE "constants/lcdc_values.asm"
+INCLUDE "constants/sections.asm"
 
 INCLUDE "macros/code.asm"
 INCLUDE "macros/gfx.asm"
 INCLUDE "macros/scanline_hell.asm"
+INCLUDE "macros/vram.asm"

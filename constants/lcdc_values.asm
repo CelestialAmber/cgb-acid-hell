@@ -9,12 +9,12 @@
 ;4: lcdc tile data area flag (bit 4)
 ;5: lcdc sprites enable flag (bit 1)
 ;6: lcdc bg priority (bit 0)
-MACRO lcdc_flags
+macro lcdc_flags
     def \1 equ \
     (1 << B_LCDC_ENABLE) | (\2 << B_LCDC_WIN_MAP) | (\3 << B_LCDC_WINDOW) \
     | (\4 << B_LCDC_BLOCKS) | (0 << B_LCDC_BG_MAP) | (0 << B_LCDC_OBJ_SIZE) \
     | (\5 << B_LCDC_OBJS) | (\6 << B_LCDC_PRIO)
-ENDM
+endm
 
 ;Flag table:
 ;   | Win Tilemap | Win Enable | Tile Area | BG Tilemap | OBJ size | OBJ enable | BG Priority

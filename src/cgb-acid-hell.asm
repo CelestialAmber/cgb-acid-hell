@@ -2,7 +2,7 @@
 ;Start function in main code that is jumped to from entry point
 _Start:
     di ;Permanently turn off interrupts b/c we don't need them 😈
-    ld sp, $FFFE
+    ld sp, STACK_START_ADDR
     push af
     ;Check if the LCD is on right now. If it is, wait for vblank, then
     ;turn it off.
@@ -13,14 +13,15 @@ _Start:
     ;Fill OAM with 0xFF
     xor a
     ld [wFrameCount], a
-    ld hl, $fe00
+    ld hl, OAM_START
     ld bc, OAM_SIZE
     ld a, $ff
     call SetMem16
-    ;Copies the first 0xA0 bytes of the tilemap 0 data to OAM. Maybe it doubles
-    ;as OAM data??
-    ld hl, TilemapData+1 ;why plus 1??
-    ld de, $fe00
+    ;Copies 0xA0 bytes starting from index 1 of the tilemap 0 data to OAM.
+    ;This part of the tilemap is specially crafted to double as OAM, which
+    ;will impact how the scanline rendering in the test works.
+    ld hl, TilemapData+1
+    ld de, OAM_START
     ld bc, OAM_SIZE
     call CopyMem
     ;Copy GBC background/object palette data (same 3 palettes for each)
@@ -36,17 +37,17 @@ _Start:
     call TestUnusedOAMMemory
     ;Initialize VRAM
     ;Switch to VRAM bank 1
-    ld a, $01
+    ld a, 1
     ldh [rVBK], a
-    ;Copy the credits message to VRAM bank 1
+    ;Copy the credits message to VRAM bank 1, starting at tile 16 in block 2
     ld hl, CreditsMessageGraphicsData
-    ld de, $9100
-    ld bc, $00e0
+    tileaddr de, 2, MESSAGE_START_TILE_INDEX
+    ld bc, MESSAGE_GRAPHICS_SIZE
     call CopyMem
-    ;Set the first 14 entries of attribute map 1
+    ;Setup attribute map 1 for the bottom message
     ld hl, TILEMAP1
     ld a, BG_BANK1 | 2 ;use bank 1, palette 2
-    ld c, 14
+    ld c, TOTAL_MESSAGE_TILES
 .initAttrMap1Loop
     ld [hl+], a
     dec c
@@ -74,10 +75,10 @@ _Start:
     ld de, TILEMAP0
     ld bc, TILEMAP_WIDTH*TILEMAP_HEIGHT
     call CopyMem
-    ;Initialize the first 14 tiles of tilemap 1 to all be tile 16
+    ;Setup tilemap 1 for the bottom message
     ld hl, TILEMAP1
-    ld a, 16
-    ld c, 14
+    ld a, MESSAGE_START_TILE_INDEX
+    ld c, TOTAL_MESSAGE_TILES
 .initTilemap1Loop
     ld [hl+], a
     inc a
@@ -88,43 +89,44 @@ _Start:
     ;This is done in two steps because of counter limitations.
     ;Fill the first two blocks
     ld c, $ff
-    ld de, $8010
+    tileaddr de, 0, 1
 .initBank0TileDataLoop1
     push bc
     ld hl, BlankFaceGraphicsData
-    ld bc, 16
+    ld bc, TILE_SIZE
     call CopyMem
     pop bc
     dec c
     jr nz, .initBank0TileDataLoop1
     ;Fill the third block
     ld c, $7f
-    ld de, $9010
+    tileaddr de, 2, 1
 .initBank0TileDataLoop2
     push bc
     ld hl, BlankFaceGraphicsData
-    ld bc, 16
+    ld bc, TILE_SIZE
     call CopyMem
     pop bc
     dec c
     jr nz, .initBank0TileDataLoop2
-    ;Finally, copy the happy face tile to tile 0x69 within block 0.
-    ;This doesn't seem to actually matter with the tilemap that's used, and is just a red
-    ;herring, with the test possibly abusing PPU quirks to make a blank face look like a
-    ;smiley face?
+    ;Finally, copy the happy face tile to tile 0x69 within block 0. This doesn't
+    ;seem to actually get used, as the test renders the smiley face
+    ;in another, much more indirect way.
     ld hl, HappyFaceGraphicsData
-    ld de, $8690
-    ld bc, 16
+    tileaddr de, 0, $69
+    ld bc, TILE_SIZE
     call CopyMem
     ;Set the STAT register to only allow LYC based STAT interrupts
     ld a, STAT_LYC
     ldh [rSTAT], a
     ;Initialize x scroll, and the window position
-    ld a, 180
+    ;Set x scroll so that the face will appear at the right position
+    ld a, TILEMAP_WIDTH_PX - FACE_X
     ldh [rSCX], a
-    ld a, 33
+    ;Set the window at the bottom where the message graphics will appear
+    ld a, MESSAGE_X
     ldh [rWX], a
-    ld a, 136
+    ld a, MESSAGE_Y
     ldh [rWY], a
     xor a
     ldh [rLYC], a ;Set the line y compare register to 0 for later
@@ -145,10 +147,11 @@ _Start:
 ;manually adjust the y scroll on each scanline and repeatedly change the LCDC flags to control what
 ;graphics are drawn from the tilemaps and objects. It does this by setting LYC and IF to 0, then halting;
 ;this causes a STAT interrupt, but no interrupt code is actually called, so the CPU resumes after the halt
-;right at the start of the scanline. It then sets SCY, and afterwards delays enough cycles until the drawing
-;mode. Once reached, it continuously changes the LCDC register flags to change what will be rendered at
-;different parts of the scanline. This is then repeated until scanline 135, where afterwards graphics render
-;as normal. Most would call this reprehensive but we don't use normal graphics rendering here 😈
+;right at the start of the scanline. It then sets SCY such that the Game Boy will draw a specific line of the
+;tilemap, and afterwards delays enough cycles until the drawing mode. Once reached, it continuously changes the
+;LCDC register flags to change what will be rendered at different parts of the scanline. This is then repeated
+;until scanline 135, where afterwards the bottom message will be drawn normally. Most would call this reprehensive
+;but we don't use normal graphics rendering here 😈
 MainLoop:
     ;Wait for vblank
     call WaitForVBlank
@@ -161,146 +164,11 @@ MainLoop:
     ld b, b ;sets flags???
 .skipReset
     ld [wFrameCount], a
-    ;Manually set the y scroll/LCDC register on scanlines 0-135. The first iteration will wait
-    ;until the first scanline through the STAT interrupt request with LYC.
-    ;The change in y scroll over scanlines often seems to be 29. Why is this?
-    def_scanline_counter
-    draw_scanline $81
-    draw_scanline $9e
-    draw_scanline $bb
-    draw_scanline $d8
-    draw_scanline $f5
-    draw_scanline $92
-    draw_scanline $af
-    draw_scanline $cc
-    draw_scanline $e9
-    draw_scanline $86
-    draw_scanline $a3
-    draw_scanline $c0
-    draw_scanline $dd
-    draw_scanline $7a
-    draw_scanline $97
-    draw_scanline $b4
-    draw_scanline $d1
-    draw_scanline $ee
-    draw_scanline $8b
-    draw_scanline $a8
-    draw_scanline $c5
-    draw_scanline $e2
-    draw_scanline $7f
-    draw_scanline $9c
-    draw_scanline $b9
-    draw_scanline $d6
-    draw_scanline $73
-    draw_scanline $90
-    draw_scanline $ad
-    draw_scanline $ca
-    draw_scanline $67
-    draw_scanline $84
-    draw_scanline $a1
-    draw_scanline $be
-    draw_scanline $db
-    draw_scanline $78
-    draw_scanline $95
-    draw_scanline $b2
-    draw_scanline $cf
-    draw_scanline $6c
-    draw_scanline $89
-    draw_scanline $a6
-    draw_scanline $c3
-    draw_scanline $60
-    draw_scanline $7d
-    draw_scanline $9a
-    draw_scanline $b7
-    draw_scanline $54
-    draw_scanline $71
-    draw_scanline $8e
-    draw_scanline $ab
-    draw_scanline $c8
-    draw_scanline $65
-    draw_scanline $82
-    draw_scanline $9f
-    draw_scanline $bc
-    draw_scanline $59
-    draw_scanline $76
-    draw_scanline $93
-    draw_scanline $b0
-    draw_scanline $4d
-    draw_scanline $6a
-    draw_scanline $87
-    draw_scanline $a4
-    draw_scanline $c8
-    draw_scanline $d0
-    draw_scanline $d8
-    draw_scanline $e0
-    draw_scanline $e8
-    draw_scanline $f0
-    draw_scanline $f8
-    draw_scanline $00
-    draw_scanline $89
-    draw_scanline $92
-    draw_scanline $9b
-    draw_scanline $a4
-    draw_scanline $ad
-    draw_scanline $36
-    draw_scanline $3f
-    draw_scanline $48
-    draw_scanline $51
-    draw_scanline $5a
-    draw_scanline $63
-    draw_scanline $6c
-    draw_scanline $75
-    draw_scanline $7e
-    draw_scanline $87
-    draw_scanline $90
-    draw_scanline $99
-    draw_scanline $a2
-    draw_scanline $2b
-    draw_scanline $34
-    draw_scanline $3d
-    draw_scanline $46
-    draw_scanline $4f
-    draw_scanline $58
-    draw_scanline $61
-    draw_scanline $6a
-    draw_scanline $73
-    draw_scanline $7c
-    draw_scanline $85
-    draw_scanline $8e
-    draw_scanline $97
-    draw_scanline $20
-    draw_scanline $29
-    draw_scanline $32
-    draw_scanline $3b
-    draw_scanline $44
-    draw_scanline $4d
-    draw_scanline $56
-    draw_scanline $5f
-    draw_scanline $68
-    draw_scanline $71
-    draw_scanline $7a
-    draw_scanline $83
-    draw_scanline $8c
-    draw_scanline $15
-    draw_scanline $1e
-    draw_scanline $27
-    draw_scanline $30
-    draw_scanline $39
-    draw_scanline $42
-    draw_scanline $4b
-    draw_scanline $54
-    draw_scanline $5d
-    draw_scanline $66
-    draw_scanline $6f
-    draw_scanline $78
-    draw_scanline $01
-    draw_scanline $0a
-    draw_scanline $13
-    draw_scanline $1c
-    draw_scanline $25
-    draw_scanline $2e
-    draw_scanline $37
-    draw_scanline $40
+    ;The first iteration will wait until the first scanline through the
+    ;STAT interrupt request with LYC.
+    for n, 136
+        draw_scanline n
+    endr
     jp MainLoop ;Jump back to the start
 
 
@@ -318,7 +186,7 @@ HandleNonGBC:
 ;prevents a non GBC system from getting here, so this doesn't cause corruption.
 TestUnusedOAMMemory:
     ;Try writing a test value at address FEA0 (should not get written)
-    ld hl, $fea0
+    ld hl, OAM_START + OAM_SIZE
     ld b, $55
     ;Wait for OAM scan to start
 .oamScanWait1
@@ -327,7 +195,7 @@ TestUnusedOAMMemory:
     jr nz, .oamScanWait1
     ld [hl], b
     ;Try writing a second test value at address FEB8 (also should not get written)
-    ld hl, $feb8
+    ld hl, OAM_START + OAM_SIZE + $18
     ld b, $44
     ;Wait for OAM scan to start
 .oamScanWait2
@@ -337,7 +205,7 @@ TestUnusedOAMMemory:
     ld [hl], b
     ;Check if the byte written to FEA0 can be read back (should return something
     ;else regardless of hardware)
-    ld hl, $fea0
+    ld hl, OAM_START + OAM_SIZE
     ;Wait for OAM scan to start
 .oamScanWait3
     ldh a, [rSTAT]
@@ -352,17 +220,17 @@ TestUnusedOAMMemory:
 ;loops indefinitely. This gets called if one of the two initial tests fails (not on GBC
 ;or inaccurate unused OAM memory implementation)
 DisplaySorryMessage:
-    ld a, $01
+    ld a, 1
     ldh [rVBK], a ;Set the vram bank to 1 (does nothing on non-GBC)
     ;Copy the sorry message
     ld hl, SorryMessageGraphicsData
-    ld de, $9100
-    ld bc, $00e0
+    tileaddr de, 2, MESSAGE_START_TILE_INDEX
+    ld bc, MESSAGE_GRAPHICS_SIZE
     call CopyMem
-    ;Set the first 14 entries of attribute map 1 on GBC/tilemap 1 otherwise
+    ;Setup attribute map 1 for the bottom message (will get replaced later if not on GBC)
     ld hl, TILEMAP1
     ld a, BG_BANK1 | 2
-    ld c, 14
+    ld c, TOTAL_MESSAGE_TILES
 .initAttrMap1Loop
     ld [hl+], a
     dec c
@@ -381,19 +249,19 @@ DisplaySorryMessage:
     ld a, 0
     ld bc, TILEMAP_WIDTH*TILEMAP_HEIGHT
     call SetMem16
-    ;Set the first 14 tiles of tilemap 1 to tile 16
+    ;Setup tilemap 1 for the bottom message
     ld hl, TILEMAP1
-    ld a, 16
-    ld c, 14
+    ld a, MESSAGE_START_TILE_INDEX
+    ld c, TOTAL_MESSAGE_TILES
 .initTilemap1Loop
     ld [hl+], a
     inc a
     dec c
     jr nz, .initTilemap1Loop
     ;Position the window to display the message at the bottom
-    ld a, $21
+    ld a, MESSAGE_X
     ldh [rWX], a
-    ld a, $88
+    ld a, MESSAGE_Y
     ldh [rWY], a
     ;Use the e flags for rendering
     ld hl, rLCDC
@@ -438,14 +306,14 @@ BlankFaceGraphicsData:
 INCBIN "gfx/blank_face.2bpp"
 
 ;0x1b54
- ;...xxx..
- ;..x---x.
- ;.x-x-x-x
- ;.x-----x
- ;.x-x-x-x
- ;.x--x--x
- ;..x---x.
- ;...xxx..
+;...xxx..
+;..x---x.
+;.x-x-x-x
+;.x-----x
+;.x-x-x-x
+;.x--x--x
+;..x---x.
+;...xxx..
 HappyFaceGraphicsData:
 INCBIN "gfx/happy_face.2bpp"
 
