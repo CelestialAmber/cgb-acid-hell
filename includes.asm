@@ -1,3 +1,4 @@
+INCLUDE "constants/build_flags.asm"
 INCLUDE "constants/hardware.inc"
 INCLUDE "constants/graphics_values.asm"
 INCLUDE "constants/lcdc_values.asm"

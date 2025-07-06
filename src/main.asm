@@ -2,7 +2,7 @@
 ;Start function in main code that is jumped to from entry point
 _Start:
     di ;Permanently turn off interrupts b/c we don't need them 😈
-    ld sp, STACK_START_ADDR
+    ld sp, STACK_ADDR
     push af
     ;Check if the LCD is on right now. If it is, wait for vblank, then
     ;turn it off.
@@ -13,16 +13,24 @@ _Start:
     ;Fill OAM with 0xFF
     xor a
     ld [wFrameCount], a
-    ld hl, OAM_START
+    ld hl, OAM_ADDR
     ld bc, OAM_SIZE
     ld a, $ff
     call SetMem16
+if !DEF(DEOBFUSCATE)
     ;Copies 0xA0 bytes starting from index 1 of the tilemap 0 data to OAM.
     ;This part of the tilemap is specially crafted to double as OAM, which
     ;will impact how the scanline rendering in the test works.
     ld hl, TilemapData+1
-    ld de, OAM_START
+    ld de, OAM_ADDR
     ld bc, OAM_SIZE
+else
+    ;Only load the data for the single sprite that is used to trigger the
+    ;LCDC bit 4 bug on the smiley face scanlines
+    ld hl, OAMData
+    ld de, OAM_ADDR
+    ld bc, OAMDataLength
+endc
     call CopyMem
     ;Copy GBC background/object palette data (same 3 palettes for each)
     ld hl, GBCPaletteData
@@ -33,8 +41,10 @@ _Start:
     ld b, PAL_SIZE*3
     xor a
     call UpdateGBCOBJPaletteData
-    ;Test unused OAM behavior. If the test fails, jump to the sorry message screen.
-    call TestUnusedOAMMemory
+    ;Test whether we're on a system other than CGB-D by checking OAM behavior, and jump to the sorry
+    ;message screen if not. This is done as the bugs in the PPU this test relies on work
+    ;differently on CGB-D, preventing the test from working properly.
+    call CheckIfNotOnCGBD
     ;Initialize VRAM
     ;Switch to VRAM bank 1
     ld a, 1
@@ -109,11 +119,10 @@ _Start:
     pop bc
     dec c
     jr nz, .initBank0TileDataLoop2
-    ;Finally, copy the happy face tile to tile 0x69 within block 0. This doesn't
-    ;seem to actually get used, as the test renders the smiley face
-    ;in another, much more indirect way.
+    ;Finally, copy the happy face tile to tile 0x69 within block 0. This is merely a red herring
+    ;to trip up people, as we render the smiley face in another, much more indirect way. 😈
     ld hl, HappyFaceGraphicsData
-    tileaddr de, 0, $69
+    tileaddr de, 0, SMILEY_FACE_TILE_INDEX
     ld bc, TILE_SIZE
     call CopyMem
     ;Set the STAT register to only allow LYC based STAT interrupts
@@ -140,85 +149,92 @@ _Start:
     ld hl, rLCDC
     ld de, (LCDC_FLAGS_DISABLE_WIN_OBJ << 8) | LCDC_FLAGS_DISABLE_OBJ ;$80e1
     ld bc, (LCDC_FLAGS_TILE_AREA_0 << 8) | LCDC_FLAGS_TILE_AREA_1 ;$e3f3
+if !DEF(DEOBFUSCATE)
     ld [hl], c ;Initialize LCDC with the c register flags. This also turns the LCD back on.
+else
+    ;Instead use b for consistency/to work with the cleaned code
+    ld [hl], b
+endc
     ;fallthrough
 
-;Instead of the regular sane approach to drawing graphics, this code forgoes that entirely to
-;manually adjust the y scroll on each scanline and repeatedly change the LCDC flags to control what
-;graphics are drawn from the tilemaps and objects. It does this by setting LYC and IF to 0, then halting;
-;this causes a STAT interrupt, but no interrupt code is actually called, so the CPU resumes after the halt
-;right at the start of the scanline. It then sets SCY such that the Game Boy will draw a specific line of the
-;tilemap, and afterwards delays enough cycles until the drawing mode. Once reached, it continuously changes the
-;LCDC register flags to change what will be rendered at different parts of the scanline. This is then repeated
-;until scanline 135, where afterwards the bottom message will be drawn normally. Most would call this reprehensive
-;but we don't use normal graphics rendering here 😈
+;This is where the fun happens 😈
 MainLoop:
     ;Wait for vblank
     call WaitForVBlank
-    ;Increment the frame count, and reset it for every 16 frames. Why is this done?
+    ;This code triggers a ld b,b breakpoint every 10 frames as a way to aid with debugging.
     ld a, [wFrameCount]
     inc a
+    ;Reset the counter if it reached the max value
     cp 10
     jr nz, .skipReset
     xor a
-    ld b, b ;sets flags???
+    ld b, b ;Trigger a breakpoint on emulators that interpret ld b,b as a breakpoint
 .skipReset
     ld [wFrameCount], a
-    ;The first iteration will wait until the first scanline through the
-    ;STAT interrupt request with LYC.
-    for n, 136
+    ;Use the manual scanline drawing method until we reach the message y position. The first
+    ;iteration will wait until the first scanline through the STAT interrupt request with LYC.
+    for n, MANUAL_LINES_NUM
         draw_scanline n
     endr
     jp MainLoop ;Jump back to the start
-
 
 ;Bro thought they could run this on a Game Boy 😭💀
 HandleNonGBC:
     jp DisplaySorryMessage ;Display the sorry message
 
 
-;This function tests the behavior of the unused OAM memory region (FEA0-FEFF),
-;specifically for how read/writes behave. What actually gets returned depends on
-;the hardware, but it should be something other than the test values used. If the
-;value written at FEA0 can be read back, the test fails, and the sorry message is
-;shown.
+def TEST_VALUE_1 equ $55
+def TEST_VALUE_2 equ $44
+
+;This function tests if the system is not a Revision D Game Boy Color by checking the behavior
+;of the unused OAM memory region (FEA0-FEFF).
+;The behavior depends on the system model as follows:
+;CGB (Revision 0-A): Reading/writing uses the given address, but bits 3-4 are masked out (addr & ~0x18)
+;CGB (Revision D):
+;
+;By doing two writes within the masked region, and using values that can't get returned by the
+;later models that are based on the address, it makes the test only fail if on CGB-D.
 ;While this could trigger the OAM bug on the original GB, the GBC test before
 ;prevents a non GBC system from getting here, so this doesn't cause corruption.
-TestUnusedOAMMemory:
-    ;Try writing a test value at address FEA0 (should not get written)
-    ld hl, OAM_START + OAM_SIZE
-    ld b, $55
+CheckIfNotOnCGBD:
+    ;Try writing a test value at address FEA0 (on earlier models, the write works normally; on
+    ;later models, it gets ignored)
+    ld hl, OAM_UNUSED_ADDR
+    ld b, TEST_VALUE_1
     ;Wait for OAM scan to start
 .oamScanWait1
     ldh a, [rSTAT]
     and STAT_BUSY
     jr nz, .oamScanWait1
     ld [hl], b
-    ;Try writing a second test value at address FEB8 (also should not get written)
-    ld hl, OAM_START + OAM_SIZE + $18
-    ld b, $44
+    ;Try writing a second test value at address FEB8. On earlier models, the address should end
+    ;up as FEA0 after masking, overwriting the first written byte. On later models, it again
+    ;gets ignored. 
+    ld hl, OAM_UNUSED_ADDR + $18
+    ld b, TEST_VALUE_2
     ;Wait for OAM scan to start
 .oamScanWait2
     ldh a, [rSTAT]
     and STAT_BUSY
     jr nz, .oamScanWait2
     ld [hl], b
-    ;Check if the byte written to FEA0 can be read back (should return something
-    ;else regardless of hardware)
-    ld hl, OAM_START + OAM_SIZE
+    ;Check the value at FEA0. On earlier models, it should return the second written byte 0x44,
+    ;and on later models it should instead return 0xAA, using the upper nybble of the lower byte.
+    ;On CGB-D, however, 
+    ld hl, OAM_UNUSED_ADDR
     ;Wait for OAM scan to start
 .oamScanWait3
     ldh a, [rSTAT]
     and STAT_BUSY
     jr nz, .oamScanWait3
     ld a, [hl]
-    cp $55 ;Did the value get stored at FEA0?
-    ret nz ;No, the test succeeded
+    cp TEST_VALUE_1 ;Did only the first value get stored at FEA0?
+    ret nz ;No, we're not on a CGB-D system
     ;Otherwise, fallthrough to the sorry message code
 
 ;This function prints the text "Sorry you don't get to play" at the bottom, and then
-;loops indefinitely. This gets called if one of the two initial tests fails (not on GBC
-;or inaccurate unused OAM memory implementation)
+;loops indefinitely. This gets called if one of the two initial tests fails (not on
+;GBC/on CGB-D)
 DisplaySorryMessage:
     ld a, 1
     ldh [rVBK], a ;Set the vram bank to 1 (does nothing on non-GBC)
@@ -270,63 +286,3 @@ DisplaySorryMessage:
     ;Loop indefinitely
 .infiniteLoop
     jr .infiniteLoop
-
-
-;Graphics data
-
-;0x1b2c
-;gbc palette data (bg and obj palettes)
-GBCPaletteData:
-;palette 0
-RGB 31, 31, 31
-RGB 31, 31, 0
-RGB 0, 0, 0
-RGB 0, 0, 0
-;palette 1
-RGB 31, 31, 31
-RGB 31, 31, 31
-RGB 31, 31, 31
-RGB 31, 31, 31
-;palette 2
-RGB 31, 31, 31
-RGB 31, 31, 31
-RGB 31, 31, 31
-RGB 0, 0, 0
-
-;0x1b44
-;...xxx..
-;..x---x.
-;.x-x-x-x
-;.x-----x
-;.x-xxx-x
-;.x-----x
-;..x---x.
-;...xxx..
-BlankFaceGraphicsData:
-INCBIN "gfx/blank_face.2bpp"
-
-;0x1b54
-;...xxx..
-;..x---x.
-;.x-x-x-x
-;.x-----x
-;.x-x-x-x
-;.x--x--x
-;..x---x.
-;...xxx..
-HappyFaceGraphicsData:
-INCBIN "gfx/happy_face.2bpp"
-
-;0x1b64
-TilemapData:
-INCBIN "gfx/tilemap.bin"
-
-;0x1f64
-;"CGB-ACID-HELL BY MATT CURRIE"
-CreditsMessageGraphicsData:
-INCBIN "gfx/credits_message.2bpp"
-
-;0x2044
-;"SORRY YOU DON'T GET TO PLAY"
-SorryMessageGraphicsData:
-INCBIN "gfx/sorry_message.2bpp"

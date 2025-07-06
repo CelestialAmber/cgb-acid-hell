@@ -9,10 +9,11 @@ SECTION "RST Vectors", ROM0[$0000]
 ;0x0
 ;b: length
 ;hl: data address
-;a should be zero (ideally it would be initialized here)
+;a: start index
 UpdateGBCBGPaletteData:
+    ;Enable auto increment
     or BGPI_AUTOINC
-    ldh [rBGPI], a ;Enable auto increment, set palette address to 0
+    ldh [rBGPI], a
     ld c, LOW(rBGPD)
 .loop
     ld a, [hl+]
@@ -24,10 +25,11 @@ UpdateGBCBGPaletteData:
 ;0xc
 ;b: length
 ;hl: data address
-;a should be zero (ideally it would be initialized here)
+;a: start index
 UpdateGBCOBJPaletteData:
+    ;Enable auto increment
     or OBPI_AUTOINC
-    ldh [rOBPI], a ;Enable auto increment, set palette address to 0
+    ldh [rOBPI], a
     ld c, LOW(rOBPD)
 .loop
     ld a, [hl+]
