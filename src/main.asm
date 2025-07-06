@@ -186,16 +186,25 @@ HandleNonGBC:
 def TEST_VALUE_1 equ $55
 def TEST_VALUE_2 equ $44
 
-;This function tests if the system is not a Revision D Game Boy Color by checking the behavior
+;This function tests if the system model is not a Revision D Game Boy Color by checking the behavior
 ;of the unused OAM memory region (FEA0-FEFF).
-;The behavior depends on the system model as follows:
-;CGB (Revision 0-A): Reading/writing uses the given address, but bits 3-4 are masked out (addr & ~0x18)
-;CGB (Revision D):
+;The behavior depends on the system model as follows (according to SameBoy):
+;
+;CGB (Revision 0/A/B/C): Reading/writing uses the given address, but bits 3-4 are masked out (addr & ~0x18)
+;CGB (Revision D): Reading/writing uses the given address, but if the lower byte is 0xC0 or higher,
+;the upper nybble is replaced with F (0xCx/Dx/Ex/Fx would all map to 0xFx)
+;Others*: Writes do nothing, and reads return the lower byte with both nybbles being the upper nybble
+;(e.g. 0xFE62 -> 0x66)
+;
+;*Only CGB-E, AGB-A, GBP-A are mentioned in SameBoy, but it's likely that other later models have the same
+;behavior.
 ;
 ;By doing two writes within the masked region, and using values that can't get returned by the
 ;later models that are based on the address, it makes the test only fail if on CGB-D.
 ;While this could trigger the OAM bug on the original GB, the GBC test before
 ;prevents a non GBC system from getting here, so this doesn't cause corruption.
+;
+;Link to SameBoy code: https://github.com/LIJI32/SameBoy/blob/master/Core/memory.c (lines 502 and 1306)
 CheckIfNotOnCGBD:
     ;Try writing a test value at address FEA0 (on earlier models, the write works normally; on
     ;later models, it gets ignored)
