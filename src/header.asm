@@ -41,7 +41,7 @@ UpdateGBCOBJPaletteData:
 ;0x18
 ;a: fill byte, bc: length, hl: destination address
 ;Fills bc bytes at hl with a.
-SetMem16:
+SetMem:
     ld d, a
 .loop
     ld [hl+], a

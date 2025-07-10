@@ -2,15 +2,16 @@
 ;Most of the data in this tilemap is completely random data, with a few exceptions. First, tile index 0
 ;is never used, as that maps to the only blank tile. The LCDC bit 4 bug the test relies on uses the tile
 ;index currently used as the high byte for the tile data, and since the tiles used end up being the top 7
-;after the first tile in the first column, they get set to have specific indices in the tilemap. Additionally
-;however, a decent chunk of the start of the tilemap starting from index 1 doubles as OAM data; as such,
-;values were chosen so sprites wouldn't end up showing, whether being offscreen, having low priority,
-;or the obj enable bit being off when the PPU tries to render it. However, there are two entries that are
-;used for different purposes: the entry at OAM index 5 (4F 01 B9 01, position: (-7, 63), obp1 palette, no
-;priority/flipping), is used to affect the timing on the scanlines where the smiley face appears so that
-;the LCDC bit 4 reset bug is triggered at the desired x position. The other entry at OAM index 0, which
-;uses the smiley face tile at tile index 69, is just there to likely confuse people more, being offscreen
-;to the right instead of where someone would reasonably expect it to be.
+;after the first tile in the first column, they (including the 9th tile in the column) get set to the 8
+;values of the upper bitplane of the smiley face tile data. Additionally however, a decent chunk of the
+;start of the tilemap starting from index 1 doubles as OAM data; as such, values were chosen so sprites
+;wouldn't end up showing, whether being offscreen, having low priority, or the obj enable bit being off
+;when the PPU tries to render it. However, there are two entries that are used for different purposes:
+;the entry at OAM index 5 (4F 01 B9 01, position: (-7, 63), obp1 palette, no priority/flipping), is used
+;to affect the timing on the scanlines where the smiley face appears so that the LCDC bit 4 reset bug is
+;triggered at the desired x position. The other entry at OAM index 0, which uses the smiley face tile at
+;tile index 69, is just there to likely confuse people more, being offscreen to the right instead of where
+;someone would reasonably expect it to be.
 
 TilemapData:
 if !DEF(DEOBFUSCATE)
@@ -56,7 +57,7 @@ else
     db $55,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
     db $49,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
     db $22,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
-    db 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+    db $1C,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
     db 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
     db 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
     db 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1

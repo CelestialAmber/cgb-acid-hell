@@ -16,7 +16,7 @@ _Start:
     ld hl, OAM_ADDR
     ld bc, OAM_SIZE
     ld a, $ff
-    call SetMem16
+    call SetMem
 if !DEF(DEOBFUSCATE)
     ;Copies 0xA0 bytes starting from index 1 of the tilemap 0 data to OAM.
     ;This part of the tilemap is specially crafted to double as OAM, which
@@ -67,7 +67,7 @@ endc
     ld hl, TILEMAP0
     ld bc, TILEMAP_WIDTH*TILEMAP_HEIGHT
     push hl
-    call SetMem16
+    call SetMem
     ;Load the flags in d, and the tilemap width in e
     ld de, ((BG_BANK0 | 0) << 8) | TILEMAP_WIDTH
     ld c, TILEMAP_WIDTH/2
@@ -204,7 +204,7 @@ def TEST_VALUE_2 equ $44
 ;While this could trigger the OAM bug on the original GB, the GBC test before
 ;prevents a non GBC system from getting here, so this doesn't cause corruption.
 ;
-;Link to SameBoy code: https://github.com/LIJI32/SameBoy/blob/master/Core/memory.c (lines 502 and 1306)
+;Link to SameBoy code: https://github.com/LIJI32/SameBoy/blob/master/Core/memory.c (GB_read_oam/write_oam)
 CheckIfNotOnCGBD:
     ;Try writing a test value at address FEA0 (on earlier models, the write works normally; on
     ;later models, it gets ignored)
@@ -265,7 +265,7 @@ DisplaySorryMessage:
     ld hl, TILEMAP0
     ld bc, TILEMAP_WIDTH*TILEMAP_HEIGHT
     push hl
-    call SetMem16
+    call SetMem
     ;Switch to bank 0 (does nothing on non-GBC)
     xor a
     ldh [rVBK], a
@@ -273,7 +273,7 @@ DisplaySorryMessage:
     ld hl, TILEMAP0
     ld a, 0
     ld bc, TILEMAP_WIDTH*TILEMAP_HEIGHT
-    call SetMem16
+    call SetMem
     ;Setup tilemap 1 for the bottom message
     ld hl, TILEMAP1
     ld a, MESSAGE_START_TILE_INDEX

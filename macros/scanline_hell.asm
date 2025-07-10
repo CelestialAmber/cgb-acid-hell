@@ -1,4 +1,4 @@
-;Calculates the current tilemap y pos given the current scanline
+;Calculates the current tilemap y pos given the current scanline.
 ;1: scanline
 macro calc_tilemap_y_pos
     if \1 < 0 || \1 > 135
@@ -78,13 +78,13 @@ macro draw_scanline
     ;We manually update the LCDC bits on every scanline such that on most scanlines (0-62, 72-135),
     ;nothing noticeable happens, even with the other garbage OAM data, while on the scanlines with
     ;the sprite at the left corner of the screen at coordinates (-7, 63), or (1,79) in OAM, an extra
-    ;delay of 6 cycles occurs due to it triggering a sprite fetch, which is cancelled by the first write
-    ;on dot 96. This makes it so the writes are aligned such that on dot 172 (first t cycle of the ld [hl]
-    ;instruction that starts on dot 168), where the top bitplane fetch happens on scanlines 64-71 for the
-    ;smiley face tile data, bit 4 of LCDC is reset, which on all systems except CGB-D will trigger a bug
-    ;that makes the tile index for that tile be used instead. Since the tile as explained above is rendered
-    ;by using a line from several different copies in the first column (tile indices 1-7), the upper bitplane
-    ;instead uses their tile indices, which are set such that they have the appropriate pixel data.
+    ;delay of 6 cycles occurs due to it triggering a sprite fetch, which succeeds, but due to the first write
+    ;on dot 96, the sprite isn't drawn. This makes it so the writes are aligned such that on dot 172
+    ;(first t cycle of the ld [hl] instruction that starts on dot 168), where the top bitplane fetch
+    ;happens on scanlines 64-71 for the smiley face tile data, bit 4 of LCDC is reset, which on all systems
+    ;except CGB-D will trigger a bug that makes the tile index for that tile be used instead. Since the tile as
+    ;explained above is rendered by using a line from several different copies in the first column (tile indices 1-7),
+    ;the upper bitplane instead uses their tile indices, which are set such that they have the appropriate pixel data.
     ;
     ;Some things to note:
     ;-On scanline 63, the bug still happens; however, since it maps to a part of the tilemap at y position
